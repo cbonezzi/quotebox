@@ -7,6 +7,7 @@ import (
 
    "cb.net/snippetbox/pkg/forms"
    "cb.net/snippetbox/pkg/models"
+   "cb.net/snippetbox/pkg/emails"
 )
 
 func (app *application) home(w http.ResponseWriter, r *http.Request) {
@@ -180,6 +181,11 @@ func (app *application) loginUser(w http.ResponseWriter, r *http.Request) {
    // in'.
    app.session.Put(r, "authenticatedUserID", id)
    
+   path := app.session.PopString(r, "redirectPathAfterLogin")
+   if path != "" {
+      http.Redirect(w, r, path, http.StatusSeeOther)
+      return
+   }
    // Redirect the user to the create snippet page.
    http.Redirect(w, r, "/snippet/create", http.StatusSeeOther)
 }
@@ -206,4 +212,67 @@ func (app *application) userProfile(w http.ResponseWriter, r *http.Request) {
       User: user,
    })
 }
+
+func (app *application) changePasswordForm(w http.ResponseWriter, r *http.Request) {
+   app.render(w, r, "password.page.tmpl", &templateData{
+      Form: forms.New(nil),
+   })
+}
    
+func (app *application) changePassword(w http.ResponseWriter, r *http.Request) {
+   err := r.ParseForm()
+   if err != nil {
+      app.clientError(w, http.StatusBadRequest)
+      return
+   }
+   form := forms.New(r.PostForm)
+   form.Required("currentPassword", "newPassword", "newPasswordConfirmation")
+   form.MinLength("newPassword", 10)
+   
+   if form.Get("newPassword") != form.Get("newPasswordConfirmation") {
+      form.Errors.Add("newPasswordConfirmation", "Passwords do not match")
+   }
+   
+   if !form.Valid() {
+      app.render(w, r, "password.page.tmpl", &templateData{Form: form})
+      return
+   }
+
+   userID := app.session.GetInt(r, "authenticatedUserID")
+   err = app.users.ChangePassword(userID, form.Get("currentPassword"), form.Get("newPassword"))
+   
+   if err == models.ErrInvalidCredentials {
+      form.Errors.Add("currentPassword", "Current password is incorrect")
+      app.render(w, r, "password.page.tmpl", &templateData{Form: form})
+      return
+   } else if err != nil {
+      app.serverError(w, err)
+      return
+   }
+   
+   app.session.Put(r, "flash", "Your password has been updated!")
+   http.Redirect(w, r, "/user/profile", 303)
+}
+
+func (app *application) passwordResetForm(w http.ResponseWriter, r *http.Request) {
+   app.render(w, r, "passwordreset.page.tmpl", &templateData{
+      Form: forms.New(nil),
+   })
+}
+
+func (app *application) passwordReset(w http.ResponseWriter, r *http.Request) {
+   err := r.ParseForm()
+   if err != nil {
+      app.clientError(w, http.StatusBadRequest)
+      return
+   }
+   form := forms.New(r.PostForm)
+   email := emails.New(form.Get("email"), "admin@emergingtek.net", "hello there", "https://192.168.0.171:4000/user/passwordreset?id=12345")
+   email.Send()
+   app.session.Put(r, "flash", "An email has been sent to your correspondence!")
+   http.Redirect(w, r, "/user/passwordreset", 303)
+}
+
+func (app *application) password(w http.ResponseWriter, r *http.Request) {
+   http.Redirect(w, r, "/user/login", 303)
+}

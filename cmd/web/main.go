@@ -11,18 +11,32 @@ import (
    "time"
 
    "cb.net/snippetbox/pkg/models/mysql"
-
+   "cb.net/snippetbox/pkg/models"
    _"github.com/go-sql-driver/mysql"
    "github.com/golangcollege/sessions"
+
 )
+
+type contextKey string
+
+var contextKeyIsAuthenticated = contextKey("isAuthenticated")
 
 type application struct {
    errorLog *log.Logger
    infoLog *log.Logger
    session *sessions.Session
-   snippets *mysql.SnippetModel
+   snippets interface {
+      Insert(string, string, string) (int, error)
+      Get(int) (*models.Snippet, error)
+      Latest() ([]*models.Snippet, error)
+   }
    templateCache map[string]*template.Template
-   users *mysql.UserModel
+   users interface {
+      Insert(string, string, string) error
+      Authenticate(string, string) (int, error)
+      Get(int) (*models.User, error)
+      ChangePassword(int, string, string) error
+   }
 }
 
 //Config struct for flags
@@ -108,12 +122,8 @@ func main() {
 
    }   
 
-   // Register the two new handler functions and corresponding URL patterns with
-   // the servemux, in exactly the same way that we did before.
+   //initialize servemux
    mux := http.NewServeMux()
-   mux.HandleFunc("/", app.home)
-   mux.HandleFunc("/snippet", app.showSnippet)
-   mux.HandleFunc("/snippet/create", app.createSnippet)
 
    // Create a file server which serves files out of the "./ui/static" directory.
    // Note that the path given to the http.Dir function is relative to the project
@@ -145,6 +155,7 @@ func main() {
    // Use the ListenAndServeTLS() method to start the HTTPS server. We
    // pass in the paths to the TLS certificate and corresponding private key as
    // the two parameters.
+   //err = srv.ListenAndServe()
    err = srv.ListenAndServeTLS("./tls/cert.pem", "./tls/key.pem")
    errorLog.Fatal(err)
 }
